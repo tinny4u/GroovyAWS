@@ -137,40 +137,30 @@ class LoadBalancedWebsiteRequests {
 
         boolean instancesTerminated = false
 
-        while (instancesTerminated) {
+        while (!instancesTerminated) {
             println 'Waiting for instances to terminate'
+            Thread.sleep(5000)
             DescribeInstancesRequest describeInstancesRequest = new DescribeInstancesRequest()
             describeInstancesRequest.setInstanceIds(instanceIds)
-            DescribeInstancesResult describeInstancesResult = ec2.describeInstances(describeInstancesRequest)
-
+            DescribeInstancesResult describeInstancesResult = ec2.describeInstances()
 
             instancesTerminated = true //assume terminated unless found otherwise
-            describeInstancesResult.getInstances().each { instance ->
 
-                println instance.getStatus()
+            describeInstancesResult.getReservations()[0].getInstances().each { instance ->
+
+                println instance.getState().name
 
                 //is it one of the instances in question?
-                instanceIds.each { -> refInstance
+                instanceIds.each { refInstance ->
 
-                    if ((refInstance == instance.getInstanceId()) && instance.getStatus() != 'terminated') {
+                    if ((refInstance == instance.getInstanceId()) && instance.getState().name != 'terminated') {
                         instancesTerminated = false
                     }
                 }
             }
         }
 
-    terminateInstancesResult.getTerminatingInstances().each {
-
-			while (it.getCurrentState().name != "terminated") {
-				Thread.sleep(5000)
-				println it.getCurrentState().name
-				println it.getCurrentState().code
-			}
-
-		}
-		Thread.sleep(60 * 1000)
-
-
+        Thread.sleep(5000)
 		//Delete security group
 		DeleteSecurityGroupRequest deleteSecurityGroupRequest = new DeleteSecurityGroupRequest(SECURITY_GROUP)
 		ec2.deleteSecurityGroup(deleteSecurityGroupRequest)
