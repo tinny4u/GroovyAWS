@@ -26,6 +26,7 @@ import com.amazonaws.services.ec2.model.SpotInstanceRequest
 import com.amazonaws.services.ec2.model.TerminateInstancesRequest
 import com.amazonaws.services.ec2.model.TerminateInstancesResult
 import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancingClient
+import com.amazonaws.services.elasticloadbalancing.model.ConfigureHealthCheckRequest
 import com.amazonaws.services.elasticloadbalancing.model.CreateLoadBalancerRequest
 import com.amazonaws.services.elasticloadbalancing.model.CreateLoadBalancerResult
 import com.amazonaws.services.elasticloadbalancing.model.DeleteLoadBalancerRequest
@@ -33,6 +34,7 @@ import com.amazonaws.services.elasticloadbalancing.model.Listener
 import com.amazonaws.services.elasticloadbalancing.model.RegisterInstancesWithLoadBalancerRequest
 import com.amazonaws.services.elasticloadbalancing.model.RegisterInstancesWithLoadBalancerResult
 import com.amazonaws.services.opsworks.model.DescribeInstancesRequest
+import com.amazonaws.services.elasticloadbalancing.model.HealthCheck
 
 class LoadBalancedWebsiteRequests {
 
@@ -85,6 +87,7 @@ class LoadBalancedWebsiteRequests {
         CreateLoadBalancerRequest createLoadBalancerRequest = new CreateLoadBalancerRequest()
         createLoadBalancerRequest.setLoadBalancerName(LOAD_BALANCER)
         createLoadBalancerRequest.withAvailabilityZones(['us-west-2a', 'us-west-2b', 'us-west-2c'])
+
         List listeners = new ArrayList(1)
         listeners.add(new Listener("HTTP", 80, 80))
         createLoadBalancerRequest.setListeners(listeners)
@@ -110,18 +113,44 @@ class LoadBalancedWebsiteRequests {
         register.setInstances(instances)
         RegisterInstancesWithLoadBalancerResult registerWithLoadBalancerResult= elb.registerInstancesWithLoadBalancer(register)
 
+        //setup health check
+        HealthCheck healthCheck = new HealthCheck()
+                .withHealthyThreshold(2)
+                .withInterval(30)
+                .withTarget("TCP:80")
+                .withTimeout(5)
+                .withUnhealthyThreshold(2)
+
+        ConfigureHealthCheckRequest configureHealthCheckRequest = new ConfigureHealthCheckRequest()
+        configureHealthCheckRequest.withLoadBalancerName(LOAD_BALANCER)
+                                    .withHealthCheck(healthCheck)
+
+
+        elb.configureHealthCheck(configureHealthCheckRequest)
+
         println 'Instances registered with the load balancer'
 
     }
 
+    private String getUserData() {
+
+        String userData = """#!/bin/sh
+curl -L https://us-east-1-aws-training.s3.amazonaws.com/self-paced-lab-3/bootstrap-elb.sh | sh""".bytes.encodeBase64().toString()
+
+        return userData
+
+    }
+
+
 	private createEC2Instances() {
 		RunInstancesRequest runInstancesRequest = new RunInstancesRequest()
-		runInstancesRequest.withImageId('ami-aae67f9a')
+		runInstancesRequest.withImageId('ami-d03ea1e0')
 				.withInstanceType('t1.micro')
 				.withMinCount(2)
 				.withMaxCount(2)
 				.withKeyName('aws-keypair')
 				.withSecurityGroups(SECURITY_GROUP)
+                .withUserData(getUserData())
 
 		RunInstancesResult runInstancesResult = ec2.runInstances(runInstancesRequest)
 
@@ -165,7 +194,7 @@ class LoadBalancedWebsiteRequests {
 		//Open ports
 		AuthorizeSecurityGroupIngressRequest authorizeSecurityGroupIngressRequest = new AuthorizeSecurityGroupIngressRequest()
 		authorizeSecurityGroupIngressRequest.withGroupName(SECURITY_GROUP)
-											.withIpPermissions([sshPermission])
+											.withIpPermissions([sshPermission,httpPermission])
 		ec2.authorizeSecurityGroupIngress(authorizeSecurityGroupIngressRequest)
 
 	}
@@ -210,7 +239,7 @@ class LoadBalancedWebsiteRequests {
             }
         }
 
-        Thread.sleep(5000)
+        Thread.sleep(10000)
 
         //Delete load balancer
         DeleteLoadBalancerRequest deleteLoadBalancerRequest = new DeleteLoadBalancerRequest()
