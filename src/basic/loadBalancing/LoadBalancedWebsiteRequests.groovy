@@ -25,16 +25,25 @@ import com.amazonaws.services.ec2.model.RunInstancesResult
 import com.amazonaws.services.ec2.model.SpotInstanceRequest
 import com.amazonaws.services.ec2.model.TerminateInstancesRequest
 import com.amazonaws.services.ec2.model.TerminateInstancesResult
+import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancingClient
+import com.amazonaws.services.elasticloadbalancing.model.CreateLoadBalancerRequest
+import com.amazonaws.services.elasticloadbalancing.model.CreateLoadBalancerResult
+import com.amazonaws.services.elasticloadbalancing.model.DeleteLoadBalancerRequest
+import com.amazonaws.services.elasticloadbalancing.model.Listener
+import com.amazonaws.services.elasticloadbalancing.model.RegisterInstancesWithLoadBalancerRequest
+import com.amazonaws.services.elasticloadbalancing.model.RegisterInstancesWithLoadBalancerResult
 import com.amazonaws.services.opsworks.model.DescribeInstancesRequest
 
 class LoadBalancedWebsiteRequests {
 
 	private AmazonEC2 ec2
+    private AmazonElasticLoadBalancingClient elb
 	private List instanceIds
 
 
 	//Constants
 	final private String SECURITY_GROUP = 'StandardWebServerGroup'
+    final private String LOAD_BALANCER = 'SimpleWebLoadBalancer'
 
 
 	LoadBalancedWebsiteRequests() {
@@ -50,6 +59,9 @@ class LoadBalancedWebsiteRequests {
 		ec2 = new AmazonEC2Client(credentials)
 		Region usWest2 = Region.getRegion(Regions.US_WEST_2)
 		ec2.setRegion(usWest2)
+
+        elb = new AmazonElasticLoadBalancingClient(credentials)
+        elb.setRegion(usWest2)
 	}
 
 
@@ -62,7 +74,45 @@ class LoadBalancedWebsiteRequests {
 		//Create EC2 instances and start
 		createEC2Instances()
 
+        //Create load balancer
+        createLoadBalancer()
+
 	}
+
+    private createLoadBalancer() {
+
+        //create load balancer
+        CreateLoadBalancerRequest createLoadBalancerRequest = new CreateLoadBalancerRequest()
+        createLoadBalancerRequest.setLoadBalancerName(LOAD_BALANCER)
+        createLoadBalancerRequest.withAvailabilityZones(['us-west-2a', 'us-west-2b', 'us-west-2c'])
+        List listeners = new ArrayList(1)
+        listeners.add(new Listener("HTTP", 80, 80))
+        createLoadBalancerRequest.setListeners(listeners)
+
+        CreateLoadBalancerResult createLoadBalancerResult = elb.createLoadBalancer(createLoadBalancerRequest)
+
+        println "Load balancer created DNS ${createLoadBalancerResult.getDNSName()}"
+
+        //get the running instances
+        DescribeInstancesResult describeInstancesRequest = ec2.describeInstances();
+        List reservations = describeInstancesRequest.getReservations();
+        List instances = []
+
+        instanceIds.each {
+
+            instances.add(new com.amazonaws.services.elasticloadbalancing.model.Instance(it))
+
+        }
+
+        //register the instances to the balancer
+        RegisterInstancesWithLoadBalancerRequest register = new RegisterInstancesWithLoadBalancerRequest()
+        register.setLoadBalancerName(LOAD_BALANCER);
+        register.setInstances(instances)
+        RegisterInstancesWithLoadBalancerResult registerWithLoadBalancerResult= elb.registerInstancesWithLoadBalancer(register)
+
+        println 'Instances registered with the load balancer'
+
+    }
 
 	private createEC2Instances() {
 		RunInstancesRequest runInstancesRequest = new RunInstancesRequest()
@@ -161,6 +211,12 @@ class LoadBalancedWebsiteRequests {
         }
 
         Thread.sleep(5000)
+
+        //Delete load balancer
+        DeleteLoadBalancerRequest deleteLoadBalancerRequest = new DeleteLoadBalancerRequest()
+        deleteLoadBalancerRequest.withLoadBalancerName(LOAD_BALANCER)
+        elb.deleteLoadBalancer(deleteLoadBalancerRequest)
+
 		//Delete security group
 		DeleteSecurityGroupRequest deleteSecurityGroupRequest = new DeleteSecurityGroupRequest(SECURITY_GROUP)
 		ec2.deleteSecurityGroup(deleteSecurityGroupRequest)

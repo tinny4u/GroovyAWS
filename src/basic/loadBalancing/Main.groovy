@@ -4,7 +4,7 @@ import com.amazonaws.AmazonServiceException
 
 class Main {
 	
-	private final static ACTIVE_MINUTES = 1
+	private final static ACTIVE_MINUTES = 2
 
 	static void main (String[] args) {
 
